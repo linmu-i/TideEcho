@@ -679,6 +679,52 @@ namespace tideecho
 		}
 	}
 
+	NetEndpoint::NetEndpoint(const std::string& ip_port)
+	{
+		auto pos = ip_port.rfind(':');
+		if (pos == std::string::npos) return;
+		std::string ipPart = ip_port.substr(0, pos);
+		std::string portPart = ip_port.substr(pos + 1);
+		uint64_t port_raw = 0;
+		try
+		{
+			port_raw = std::stoul(portPart);
+		}
+		catch (...)
+		{
+			return;
+		}
+		if (port_raw > 65535)
+		{
+			return;
+		}
+		uint16_t port = static_cast<uint16_t>(port_raw);
+		if (ipPart.find(':') != std::string::npos)
+		{
+			sockaddr_in6 tmp{};
+			if (inet_pton(AF_INET6, ipPart.c_str(), &tmp.sin6_addr) == 1)
+			{
+				char buf[INET6_ADDRSTRLEN] = {};
+				inet_ntop(AF_INET6, &tmp.sin6_addr, buf, INET6_ADDRSTRLEN);
+				ip_ = buf;
+				port_ = port;
+				family_ = AddressFamily::IPv6;
+			}
+		}
+		else
+		{
+			sockaddr_in tmp{};
+			if (inet_pton(AF_INET, ipPart.c_str(), &tmp.sin_addr) == 1)
+			{
+				char buf[INET_ADDRSTRLEN] = {};
+				inet_ntop(AF_INET, &tmp.sin_addr, buf, INET_ADDRSTRLEN);
+				ip_ = buf;
+				port_ = port;
+				family_ = AddressFamily::IPv4;
+			}
+		}
+	}
+
 #pragma endregion
 
 
@@ -1945,6 +1991,52 @@ namespace tideecho
 			break;
 		}
 		default: break;
+		}
+	}
+
+	NetEndpoint::NetEndpoint(const std::string& ip_port)
+	{
+		auto pos = ip_port.rfind(':');
+		if (pos == std::string::npos) return;
+		std::string ipPart = ip_port.substr(0, pos);
+		std::string portPart = ip_port.substr(pos + 1);
+		uint64_t port_raw = 0;
+		try
+		{
+			port_raw = std::stoul(portPart);
+		}
+		catch (...)
+		{
+			return;
+		}
+		if (port_raw > 65535)
+		{
+			return;
+		}
+		uint16_t port = static_cast<uint16_t>(port_raw);
+		if (ipPart.find(':') != std::string::npos)
+		{
+			sockaddr_in6 tmp{};
+			if (inet_pton(AF_INET6, ipPart.c_str(), &tmp.sin6_addr) == 1)
+			{
+				char buf[INET6_ADDRSTRLEN] = {};
+				inet_ntop(AF_INET6, &tmp.sin6_addr, buf, INET6_ADDRSTRLEN);
+				ip_ = buf;
+				port_ = port;
+				family_ = AddressFamily::IPv6;
+			}
+		}
+		else
+		{
+			sockaddr_in tmp{};
+			if (inet_pton(AF_INET, ipPart.c_str(), &tmp.sin_addr) == 1)
+			{
+				char buf[INET_ADDRSTRLEN] = {};
+				inet_ntop(AF_INET, &tmp.sin_addr, buf, INET_ADDRSTRLEN);
+				ip_ = buf;
+				port_ = port;
+				family_ = AddressFamily::IPv4;
+			}
 		}
 	}
 

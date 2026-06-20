@@ -51,6 +51,7 @@ namespace tideecho
 	public:
 		NetEndpoint() = default;
 		NetEndpoint(const std::string& ip, uint16_t port, AddressFamily family);
+		NetEndpoint(const std::string& ip_port);
 
 		AddressFamily addrFamily() const noexcept { return family_; }
 
