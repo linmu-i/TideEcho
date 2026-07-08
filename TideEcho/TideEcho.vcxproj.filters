@@ -15,19 +15,19 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="example.cpp">
-      <Filter>源文件</Filter>
-    </ClCompile>
-    <ClCompile Include="TideEcho.cpp">
-      <Filter>源文件</Filter>
-    </ClCompile>
+    <Text Include="CMakeLists.txt" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="TideEcho.h">
+    <ClInclude Include="include\TideEcho.h">
       <Filter>头文件</Filter>
     </ClInclude>
-    <ClInclude Include="TideEchoNative.h">
+    <ClInclude Include="include\TideEchoNative.h">
       <Filter>头文件</Filter>
     </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="src\TideEcho.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
   </ItemGroup>
 </Project>
