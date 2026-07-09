@@ -53,8 +53,8 @@ class NetServiceGuard { ... };
 **收发函数**：
 
 ```c++
-int64_t recv(std::span<char> buffer, int64_t timeout_ms = -1);
-int64_t send(std::span<const char> buffer, int64_t timeout_ms = -1);
+int64_t recv(std::span<uint8_t> buffer, int64_t timeout_ms = -1);
+int64_t send(std::span<const uint8_t> buffer, int64_t timeout_ms = -1);
 ```
 
 
@@ -114,9 +114,9 @@ TCPClient(NetEndpoint remote, NetEndpoint local = {});
 TCPClient(AddressFamily family);
 TCPStreamStatus connect(NetEndpoint remote);   // 可重新连接
 void update();                                 // 必须循环调用
-AsyncSendResult asyncSend(std::vector<char> data);
-AsyncSendResult asyncSendRef(std::span<const char> data);  // 引用数据，需保证生命周期
-std::optional<std::vector<char>> getPackage(); // 获取完整数据包
+AsyncSendResult asyncSend(std::vector<uint8_t> data);
+AsyncSendResult asyncSendRef(std::span<const uint8_t> data);  // 引用数据，需保证生命周期
+std::optional<std::vector<uint8_t>> getPackage(); // 获取完整数据包
 ```
 
 
@@ -133,8 +133,8 @@ TCPServer(NetEndpoint local);
 TCPServer(uint16_t port);
 void update();                                 // 单线程驱动
 std::vector<std::function<void()>> updateTasks(); // 返回各连接的任务，可并行执行
-AsyncSendResult asyncSend(std::vector<char> data, NetEndpoint remote);
-AsyncSendResult asyncSendRef(std::span<const char> data, NetEndpoint remote);
+AsyncSendResult asyncSend(std::vector<uint8_t> data, NetEndpoint remote);
+AsyncSendResult asyncSendRef(std::span<const uint8_t> data, NetEndpoint remote);
 std::optional<NetPackage> getPackage();
 std::vector<NetEndpoint> remote() const;       // 当前所有客户端
 ```
