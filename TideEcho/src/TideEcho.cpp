@@ -98,22 +98,22 @@ namespace tideecho
 		return buffer->status();
 	}
 
-	int64_t TCPStream::recv(std::span<char> buffer, int64_t timeout_ms)
+	int64_t TCPStream::recv(std::span<uint8_t> buffer, int64_t timeout_ms)
 	{
 		if (this->buffer.get() == nullptr) return -1;
 		return this->buffer->recv(buffer, timeout_ms);
 	}
-	int64_t TCPStream::recv(char* buffer, size_t size, int64_t timeout_ms)
+	int64_t TCPStream::recv(uint8_t* buffer, size_t size, int64_t timeout_ms)
 	{
 		if (this->buffer.get() == nullptr) return -1;
 		return this->buffer->recv(buffer, size, timeout_ms);
 	}
-	int64_t TCPStream::send(std::span<const char> buffer, int64_t timeout_ms)
+	int64_t TCPStream::send(std::span<const uint8_t> buffer, int64_t timeout_ms)
 	{
 		if (this->buffer.get() == nullptr) return -1;
 		return this->buffer->send(buffer, timeout_ms);
 	}
-	int64_t TCPStream::send(const char* buffer, size_t size, int64_t timeout_ms)
+	int64_t TCPStream::send(const uint8_t* buffer, size_t size, int64_t timeout_ms)
 	{
 		if (this->buffer.get() == nullptr) return -1;
 		return this->buffer->send(buffer, size, timeout_ms);
@@ -140,7 +140,7 @@ namespace tideecho
 			{
 				head_t head = sendBuffer.dataRef.size();
 				head = ToLittleEndian(head);
-				std::span<const char> sendTmp((const char*)&head + sendHeadCnt, HeadSize - sendHeadCnt);
+				std::span<const uint8_t> sendTmp((const uint8_t*)&head + sendHeadCnt, HeadSize - sendHeadCnt);
 				int64_t tmpCnt = stream->send(sendTmp, 0);
 				if (tmpCnt <= 0 && stream->status() == TCPStreamStatus::Error)
 				{
@@ -165,7 +165,7 @@ namespace tideecho
 
 			if (sendHeadCnt >= HeadSize)
 			{
-				std::span<const char> sendTmp(sendBuffer.dataRef.begin() + sendCnt, sendBuffer.dataRef.end());
+				std::span<const uint8_t> sendTmp(sendBuffer.dataRef.begin() + sendCnt, sendBuffer.dataRef.end());
 				int64_t tmpCnt = stream->send(sendTmp, 0);
 				if (tmpCnt <= 0 && stream->status() == TCPStreamStatus::Error)
 				{
@@ -201,7 +201,7 @@ namespace tideecho
 
 		if (recvCnt < HeadSize)
 		{
-			std::span<char> recvTmp{ (char*)&headBuffer + recvHeadCnt, HeadSize - recvHeadCnt };
+			std::span<uint8_t> recvTmp{ (uint8_t*)&headBuffer + recvHeadCnt, HeadSize - recvHeadCnt };
 			int64_t tmpCnt = stream->recv(recvTmp, 0);
 			if (tmpCnt <= 0 && stream->status() == TCPStreamStatus::Error)
 			{
@@ -233,7 +233,7 @@ namespace tideecho
 
 		if (recvHeadCnt >= HeadSize)
 		{
-			std::span<char> recvTmp{ recvBuffer.begin() + recvCnt, recvBuffer.end() };
+			std::span<uint8_t> recvTmp{ recvBuffer.begin() + recvCnt, recvBuffer.end() };
 			int64_t tmpCnt = stream->recv(recvTmp, 0);
 			if (tmpCnt <= 0 && stream->status() == TCPStreamStatus::Error)
 			{
@@ -272,31 +272,31 @@ namespace tideecho
 		processor.update();
 	}
 
-	AsyncSendResult TCPClient::asyncSend(std::vector<char> data)
+	AsyncSendResult TCPClient::asyncSend(std::vector<uint8_t> data)
 	{
 		if (processor.status() == TCPStreamStatus::Error) return AsyncSendResult{ std::make_shared<std::atomic<AsyncSendStatus>>(AsyncSendStatus::Failed) };
 		AsyncSendResult r{ std::make_shared<std::atomic<AsyncSendStatus>>(AsyncSendStatus::InQueue) };
 		std::lock_guard lock{ *sendMutex };
-		auto dataRef = std::span<const char>(data);
+		auto dataRef = std::span<const uint8_t>(data);
 		sendQueue.emplace_back(std::move(data), dataRef, r.status_);
 		return r;
 	}
 
-	AsyncSendResult TCPClient::asyncSendRef(std::span<const char> data)
+	AsyncSendResult TCPClient::asyncSendRef(std::span<const uint8_t> data)
 	{
 		if (processor.status() == TCPStreamStatus::Error) return AsyncSendResult{ std::make_shared<std::atomic<AsyncSendStatus>>(AsyncSendStatus::Failed) };
 		AsyncSendResult r{ std::make_shared<std::atomic<AsyncSendStatus>>(AsyncSendStatus::InQueue) };
 		std::lock_guard lock{ *sendMutex };
-		sendQueue.emplace_back(std::vector<char>{}, data, r.status_);
+		sendQueue.emplace_back(std::vector<uint8_t>{}, data, r.status_);
 		return r;
 	}
 
-	std::optional<std::vector<char>> TCPClient::getPackage()
+	std::optional<std::vector<uint8_t>> TCPClient::getPackage()
 	{
 		std::lock_guard lock{ *recvMutex };
 		if (!recvQueue.empty())
 		{
-			auto result = std::make_optional<std::vector<char>>(std::move(recvQueue.front()));
+			auto result = std::make_optional<std::vector<uint8_t>>(std::move(recvQueue.front()));
 			recvQueue.pop_front();
 			return result;
 		}
@@ -345,7 +345,7 @@ namespace tideecho
 					client.sendQueue.pop_front();
 					return std::make_optional<SendQueueItem>(std::move(tmp));
 				},
-				[this](std::vector<char>&& data, NetEndpoint remote)
+				[this](std::vector<uint8_t>&& data, NetEndpoint remote)
 				{
 					std::lock_guard lock{ *recvMutex };
 					recvQueue.emplace_back(NetPackage{ std::move(remote), std::move(data) });
@@ -433,7 +433,7 @@ namespace tideecho
 					client.sendQueue.pop_front();
 					return std::make_optional(std::move(tmp));
 				},
-				[this](std::vector<char>&& data, NetEndpoint remote)
+				[this](std::vector<uint8_t>&& data, NetEndpoint remote)
 				{
 					std::lock_guard lock{ *recvMutex };
 					recvQueue.emplace_back(NetPackage{ std::move(remote), std::move(data) });
@@ -498,20 +498,20 @@ namespace tideecho
 		return tasks;
 	}
 
-	AsyncSendResult TCPServer::asyncSend(std::vector<char> data, NetEndpoint remote)
+	AsyncSendResult TCPServer::asyncSend(std::vector<uint8_t> data, NetEndpoint remote)
 	{
 		AsyncSendResult r{ std::make_shared<std::atomic<AsyncSendStatus>>(AsyncSendStatus::InQueue) };
 		std::lock_guard lock{ *sendMutex };
-		auto dataRef = std::span<const char>(data);
+		auto dataRef = std::span<const uint8_t>(data);
 		sendQueue.emplace_back(SendItem{ SendQueueItem{std::move(data), dataRef, r.status_}, remote });
 		return r;
 	}
 
-	AsyncSendResult TCPServer::asyncSendRef(std::span<const char> data, NetEndpoint remote)
+	AsyncSendResult TCPServer::asyncSendRef(std::span<const uint8_t> data, NetEndpoint remote)
 	{
 		AsyncSendResult r{ std::make_shared<std::atomic<AsyncSendStatus>>(AsyncSendStatus::InQueue) };
 		std::lock_guard lock{ *sendMutex };
-		sendQueue.emplace_back(SendItem{ SendQueueItem{std::vector<char>{}, data, r.status_}, remote });
+		sendQueue.emplace_back(SendItem{ SendQueueItem{std::vector<uint8_t>{}, data, r.status_}, remote });
 		return r;
 	}
 
@@ -744,7 +744,7 @@ namespace tideecho
 #pragma region TCPStreamBuffer
 	TCPStreamBuffer::TCPStreamBuffer(NetEndpoint remote, NetEndpoint local)
 	{
-		setp(writeBuf.data(), writeBuf.data() + writeBuf.size());
+		setp(reinterpret_cast<char*>(writeBuf.data()), reinterpret_cast<char*>(writeBuf.data()) + writeBuf.size());
 		if (!remote.valid() && !local.valid())
 		{
 			status_ = TCPStreamStatus::Error;
@@ -935,7 +935,7 @@ namespace tideecho
 
 	TCPStreamBuffer::TCPStreamBuffer(Socket&& sock) : s(std::move(sock))
 	{
-		setp(writeBuf.data(), writeBuf.data() + writeBuf.size());
+		setp(reinterpret_cast<char*>(writeBuf.data()), reinterpret_cast<char*>(writeBuf.data()) + writeBuf.size());
 
 		if (!s.valid()) {
 			status_ = TCPStreamStatus::Error;
@@ -1252,7 +1252,7 @@ namespace tideecho
 		return status_;
 	}
 
-	int64_t TCPStreamBuffer::send(std::span<const char> data, int64_t timeout_ms)
+	int64_t TCPStreamBuffer::send(std::span<const uint8_t> data, int64_t timeout_ms)
 	{
 		status();//更新状态
 		if (data.empty())
@@ -1282,7 +1282,7 @@ namespace tideecho
 				s.reset();
 				return -1;
 			}
-			int ret = ::send(sock, data.data(), static_cast<int>(data.size()), 0);
+			int ret = ::send(sock, reinterpret_cast<const char*>(data.data()), static_cast<int>(data.size()), 0);
 			u_long nonblock = 1;
 			ioctlsocket(sock, FIONBIO, &nonblock);
 
@@ -1304,7 +1304,7 @@ namespace tideecho
 		}
 
 		// 非阻塞或超时模式
-		int ret = ::send(sock, data.data(), static_cast<int>(data.size()), 0);
+		int ret = ::send(sock, reinterpret_cast<const char*>(data.data()), static_cast<int>(data.size()), 0);
 		if (ret > 0)
 			return ret;
 		if (ret == 0)   // 对端关闭
@@ -1374,7 +1374,7 @@ namespace tideecho
 			}
 
 			// 可写，尝试发送
-			ret = ::send(sock, data.data(), static_cast<int>(data.size()), 0);
+			ret = ::send(sock, reinterpret_cast<const char*>(data.data()), static_cast<int>(data.size()), 0);
 			if (ret > 0)
 				return ret;
 			if (ret == 0)
@@ -1392,12 +1392,12 @@ namespace tideecho
 		}
 	}
 
-	int64_t TCPStreamBuffer::send(const char* buffer, size_t size, int64_t timeout_ms)
+	int64_t TCPStreamBuffer::send(const uint8_t* buffer, size_t size, int64_t timeout_ms)
 	{
-		return send(std::span<const char>(buffer, size), timeout_ms);
+		return send(std::span<const uint8_t>(buffer, size), timeout_ms);
 	}
 
-	int64_t TCPStreamBuffer::recv(std::span<char> buffer, int64_t timeout_ms)
+	int64_t TCPStreamBuffer::recv(std::span<uint8_t> buffer, int64_t timeout_ms)
 	{
 		status();//更新状态
 		if (buffer.empty())
@@ -1427,7 +1427,7 @@ namespace tideecho
 				s.reset();
 				return -1;
 			}
-			int ret = ::recv(sock, buffer.data(), static_cast<int>(buffer.size()), 0);
+			int ret = ::recv(sock, reinterpret_cast<char*>(buffer.data()), static_cast<int>(buffer.size()), 0);
 			u_long nonblock = 1;
 			ioctlsocket(sock, FIONBIO, &nonblock);
 
@@ -1445,7 +1445,7 @@ namespace tideecho
 		}
 
 		// 非阻塞立即
-		int ret = ::recv(sock, buffer.data(), static_cast<int>(buffer.size()), 0);
+		int ret = ::recv(sock, reinterpret_cast<char*>(buffer.data()), static_cast<int>(buffer.size()), 0);
 		if (ret > 0)
 			return ret;
 		if (ret == 0)   // 对端关闭
@@ -1512,7 +1512,7 @@ namespace tideecho
 				continue;
 			}
 
-			ret = ::recv(sock, buffer.data(), static_cast<int>(buffer.size()), 0);
+			ret = ::recv(sock, reinterpret_cast<char*>(buffer.data()), static_cast<int>(buffer.size()), 0);
 			if (ret > 0)
 				return ret;
 			if (ret == 0)   // 对端关闭
@@ -1530,9 +1530,9 @@ namespace tideecho
 		}
 	}
 
-	int64_t TCPStreamBuffer::recv(char* buffer, size_t size, int64_t timeout_ms)
+	int64_t TCPStreamBuffer::recv(uint8_t* buffer, size_t size, int64_t timeout_ms)
 	{
-		return recv(std::span<char>(buffer, size), timeout_ms);
+		return recv(std::span<uint8_t>(buffer, size), timeout_ms);
 	}
 
 	std::streambuf::int_type TCPStreamBuffer::underflow()
@@ -1547,7 +1547,7 @@ namespace tideecho
 			return traits_type::eof();
 
 		// 设置新的读区域
-		setg(readBuf.data(), readBuf.data(), readBuf.data() + static_cast<size_t>(ret));
+		setg(reinterpret_cast<char*>(readBuf.data()), reinterpret_cast<char*>(readBuf.data()), reinterpret_cast<char*>(readBuf.data()) + static_cast<size_t>(ret));
 		return traits_type::to_int_type(*gptr());
 	}
 
@@ -1557,7 +1557,7 @@ namespace tideecho
 		if (pbase() != nullptr && pptr() > pbase())
 		{
 			size_t size = static_cast<size_t>(pptr() - pbase());
-			int64_t sent = send({ pbase(), size }, -1);
+			int64_t sent = send({ reinterpret_cast<uint8_t*>(pbase()), size }, -1);
 			if (sent != static_cast<int64_t>(size))
 				return traits_type::eof();
 			pbump(-static_cast<int>(size));   // 重置写指针
@@ -1575,7 +1575,7 @@ namespace tideecho
 			else
 			{
 				// 极端情况：缓冲区太小，直接发送单个字符
-				char ch = traits_type::to_char_type(c);
+				uint8_t ch = traits_type::to_char_type(c);
 				int64_t sent = send({ &ch, 1 }, -1);
 				if (sent != 1)
 					return traits_type::eof();
@@ -1590,7 +1590,7 @@ namespace tideecho
 		if (pbase() != nullptr && pptr() > pbase())
 		{
 			size_t size = static_cast<size_t>(pptr() - pbase());
-			int64_t sent = send({ pbase(), size }, -1);
+			int64_t sent = send({ reinterpret_cast<uint8_t*>(pbase()), size }, -1);
 			if (sent != static_cast<int64_t>(size))
 				return -1;
 			pbump(-static_cast<int>(size));
@@ -2052,7 +2052,7 @@ namespace tideecho
 	// ---------- TCPStreamBuffer ----------
 	TCPStreamBuffer::TCPStreamBuffer(NetEndpoint remote, NetEndpoint local)
 	{
-		setp(writeBuf.data(), writeBuf.data() + writeBuf.size());
+		setp(reinterpret_cast<char*>(writeBuf.data()), reinterpret_cast<char*>(writeBuf.data()) + writeBuf.size());
 		if (!remote.valid() && !local.valid())
 		{
 			status_ = TCPStreamStatus::Error;
@@ -2181,7 +2181,7 @@ namespace tideecho
 
 	TCPStreamBuffer::TCPStreamBuffer(Socket&& sock) : s(std::move(sock))
 	{
-		setp(writeBuf.data(), writeBuf.data() + writeBuf.size());
+		setp(reinterpret_cast<char*>(writeBuf.data()), reinterpret_cast<char*>(writeBuf.data()) + writeBuf.size());
 		if (!s.valid())
 		{
 			status_ = TCPStreamStatus::Error;
@@ -2497,7 +2497,7 @@ namespace tideecho
 		}
 	}
 
-	int64_t TCPStreamBuffer::send(std::span<const char> data, int64_t timeout_ms)
+	int64_t TCPStreamBuffer::send(std::span<const uint8_t> data, int64_t timeout_ms)
 	{
 		status();
 		if (data.empty()) return 0;
@@ -2600,12 +2600,12 @@ namespace tideecho
 		}
 	}
 
-	int64_t TCPStreamBuffer::send(const char* buffer, size_t size, int64_t timeout_ms)
+	int64_t TCPStreamBuffer::send(const uint8_t* buffer, size_t size, int64_t timeout_ms)
 	{
-		return send(std::span<const char>(buffer, size), timeout_ms);
+		return send(std::span<const uint8_t>(buffer, size), timeout_ms);
 	}
 
-	int64_t TCPStreamBuffer::recv(std::span<char> buffer, int64_t timeout_ms)
+	int64_t TCPStreamBuffer::recv(std::span<uint8_t> buffer, int64_t timeout_ms)
 	{
 		status();
 		if (buffer.empty()) return 0;
@@ -2706,9 +2706,9 @@ namespace tideecho
 		}
 	}
 
-	int64_t TCPStreamBuffer::recv(char* buffer, size_t size, int64_t timeout_ms)
+	int64_t TCPStreamBuffer::recv(uint8_t* buffer, size_t size, int64_t timeout_ms)
 	{
-		return recv(std::span<char>(buffer, size), timeout_ms);
+		return recv(std::span<uint8_t>(buffer, size), timeout_ms);
 	}
 
 	std::streambuf::int_type TCPStreamBuffer::underflow()
@@ -2719,7 +2719,7 @@ namespace tideecho
 		int64_t ret = recv({ readBuf.data(), readBuf.size() }, -1);
 		if (ret <= 0) return traits_type::eof();
 
-		setg(readBuf.data(), readBuf.data(), readBuf.data() + static_cast<size_t>(ret));
+		setg(reinterpret_cast<char*>(readBuf.data()), reinterpret_cast<char*>(readBuf.data()), reinterpret_cast<char*>(readBuf.data()) + static_cast<size_t>(ret));
 		return traits_type::to_int_type(*gptr());
 	}
 
@@ -2728,7 +2728,7 @@ namespace tideecho
 		if (pbase() && pptr() > pbase())
 		{
 			size_t size = static_cast<size_t>(pptr() - pbase());
-			int64_t sent = send({ pbase(), size }, -1);
+			int64_t sent = send({ reinterpret_cast<uint8_t*>(pbase()), size }, -1);
 			if (sent != static_cast<int64_t>(size)) return traits_type::eof();
 			pbump(-static_cast<int>(size));
 		}
@@ -2741,7 +2741,7 @@ namespace tideecho
 			}
 			else
 			{
-				char ch = traits_type::to_char_type(c);
+				uint8_t ch = traits_type::to_char_type(c);
 				if (send({ &ch, 1 }, -1) != 1) return traits_type::eof();
 			}
 		}
@@ -2753,7 +2753,7 @@ namespace tideecho
 		if (pbase() && pptr() > pbase())
 		{
 			size_t size = static_cast<size_t>(pptr() - pbase());
-			if (send({ pbase(), size }, -1) != static_cast<int64_t>(size)) return -1;
+			if (send({ reinterpret_cast<uint8_t*>(pbase()), size }, -1) != static_cast<int64_t>(size)) return -1;
 			pbump(-static_cast<int>(size));
 		}
 		return 0;

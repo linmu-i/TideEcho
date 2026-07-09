@@ -130,8 +130,8 @@ namespace tideecho
 	{
 	private:
 		Socket s;
-		std::vector<char> readBuf = std::vector<char>(bufferSize);
-		std::vector<char> writeBuf = std::vector<char>(bufferSize);
+		std::vector<uint8_t> readBuf = std::vector<uint8_t>(bufferSize);
+		std::vector<uint8_t> writeBuf = std::vector<uint8_t>(bufferSize);
 
 		NetEndpoint remote_ = {};
 		NetEndpoint local_ = {};
@@ -168,10 +168,10 @@ namespace tideecho
 		const NetEndpoint& local() const { return local_; }
 		const NetEndpoint& remote() const { return remote_; }
 		
-		int64_t recv(std::span<char> buffer, int64_t timeout_ms = -1);
-		int64_t recv(char* buffer, size_t size, int64_t timeout_ms = -1);
-		int64_t send(std::span<const char> buffer, int64_t timeout_ms = -1);
-		int64_t send(const char* buffer, size_t size, int64_t timeout_ms = -1);
+		int64_t recv(std::span<uint8_t> buffer, int64_t timeout_ms = -1);
+		int64_t recv(uint8_t* buffer, size_t size, int64_t timeout_ms = -1);
+		int64_t send(std::span<const uint8_t> buffer, int64_t timeout_ms = -1);
+		int64_t send(const uint8_t* buffer, size_t size, int64_t timeout_ms = -1);
 	};
 
 	class TCPStream : public std::iostream
@@ -195,10 +195,10 @@ namespace tideecho
 		const NetEndpoint& local() const { return buffer->local(); }
 		const NetEndpoint& remote() const { return buffer->remote(); }
 
-		int64_t recv(std::span<char> buffer, int64_t timeout_ms = -1);
-		int64_t recv(char* buffer, size_t size, int64_t timeout_ms = -1);
-		int64_t send(std::span<const char> buffer, int64_t timeout_ms = -1);
-		int64_t send(const char* buffer, size_t size, int64_t timeout_ms = -1);
+		int64_t recv(std::span<uint8_t> buffer, int64_t timeout_ms = -1);
+		int64_t recv(uint8_t* buffer, size_t size, int64_t timeout_ms = -1);
+		int64_t send(std::span<const uint8_t> buffer, int64_t timeout_ms = -1);
+		int64_t send(const uint8_t* buffer, size_t size, int64_t timeout_ms = -1);
 	};
 
 
@@ -258,8 +258,8 @@ namespace tideecho
 
 	struct SendQueueItem
 	{
-		std::vector<char> data;
-		std::span<const char> dataRef;
+		std::vector<uint8_t> data;
+		std::span<const uint8_t> dataRef;
 		std::shared_ptr<std::atomic<AsyncSendStatus>> status;
 	};
 
@@ -269,7 +269,7 @@ namespace tideecho
 		std::unique_ptr<TCPStream> stream;
 
 		std::function<std::optional<SendQueueItem>(NetEndpoint)> getSendData;
-		std::function<void(std::vector<char>&&, NetEndpoint)> pullRecvData;
+		std::function<void(std::vector<uint8_t>&&, NetEndpoint)> pullRecvData;
 		std::function<void(NetEndpoint)> streamError;
 
 		using head_t = uint32_t;
@@ -281,7 +281,7 @@ namespace tideecho
 		int64_t sendHeadCnt = 0;
 		int64_t sendCnt = 0;
 
-		std::vector<char> recvBuffer;
+		std::vector<uint8_t> recvBuffer;
 		int64_t recvHeadCnt = 0;
 		int64_t recvCnt = 0;
 
@@ -290,7 +290,7 @@ namespace tideecho
 		TCPConnectionProcessor(
 			std::unique_ptr<TCPStream>&& stream,
 			std::function<std::optional<SendQueueItem>(NetEndpoint)> getSendData,
-			std::function<void(std::vector<char>&&, NetEndpoint)> pullRecvData,
+			std::function<void(std::vector<uint8_t>&&, NetEndpoint)> pullRecvData,
 			std::function<void(NetEndpoint)> streamError
 		) : stream(std::move(stream)), getSendData(std::move(getSendData)), pullRecvData(std::move(pullRecvData)), streamError(std::move(streamError)) {}
 		void update();
@@ -306,7 +306,7 @@ namespace tideecho
 		TCPConnectionProcessor processor;
 
 		
-		std::deque<std::vector<char>> recvQueue;
+		std::deque<std::vector<uint8_t>> recvQueue;
 		std::unique_ptr<std::mutex> recvMutex = std::make_unique<std::mutex>();
 
 		
@@ -325,7 +325,7 @@ namespace tideecho
 					sendQueue.pop_front();
 					return std::make_optional<SendQueueItem>(std::move(tmp));
 				},
-				[this](std::vector<char>&& data, NetEndpoint)
+				[this](std::vector<uint8_t>&& data, NetEndpoint)
 				{
 					std::lock_guard lock{ *recvMutex };
 					recvQueue.emplace_back(std::move(data));
@@ -346,16 +346,16 @@ namespace tideecho
 		void update();
 		NetEndpoint local() const { return processor.local(); }
 		NetEndpoint remote() const { return processor.remote(); }
-		AsyncSendResult asyncSend(std::vector<char> data);
-		AsyncSendResult asyncSendRef(std::span<const char> data);
-		std::optional<std::vector<char>> getPackage();
+		AsyncSendResult asyncSend(std::vector<uint8_t> data);
+		AsyncSendResult asyncSendRef(std::span<const uint8_t> data);
+		std::optional<std::vector<uint8_t>> getPackage();
 		~TCPClient();
 	};
 
 	struct NetPackage
 	{
 		NetEndpoint remote;
-		std::vector<char> data;
+		std::vector<uint8_t> data;
 	};
 
 	class TCPServer
@@ -393,8 +393,8 @@ namespace tideecho
 		std::vector<std::function<void()>> updateTasks();
 		NetEndpoint local() const { return listener.local(); }
 		std::vector<NetEndpoint> remote() const;
-		AsyncSendResult asyncSend(std::vector<char> data, NetEndpoint remote);
-		AsyncSendResult asyncSendRef(std::span<const char> data, NetEndpoint remote);
+		AsyncSendResult asyncSend(std::vector<uint8_t> data, NetEndpoint remote);
+		AsyncSendResult asyncSendRef(std::span<const uint8_t> data, NetEndpoint remote);
 		std::optional<NetPackage> getPackage();
 		~TCPServer();
 	};
