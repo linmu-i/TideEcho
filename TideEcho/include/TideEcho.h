@@ -251,7 +251,7 @@ namespace tideecho
 		AsyncSendStatus status() const { return *status_; }
 		bool inQueue() const { return *status_ == AsyncSendStatus::InQueue; }
 		bool sending() const { return *status_ == AsyncSendStatus::Sending; }
-		bool sended() const { return *status_ == AsyncSendStatus::Sent; }
+		bool sent() const { return *status_ == AsyncSendStatus::Sent; }
 		bool failed() const { return *status_ == AsyncSendStatus::Failed; }
 	};
 
