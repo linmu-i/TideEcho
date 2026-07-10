@@ -342,6 +342,7 @@ namespace tideecho
 			){}
 		TCPClient(AddressFamily family) : TCPClient({}, NetEndpoint{ family == AddressFamily::IPv4 ? "0.0.0.0" : "::", 0, family }) {};
 		TCPStreamStatus status() { return processor.status(); }
+		bool valid() { return status() != TCPStreamStatus::Error; }
 		TCPStreamStatus connect(NetEndpoint remote) { return processor.connect(remote); }
 		void update();
 		NetEndpoint local() const { return processor.local(); }
@@ -396,6 +397,8 @@ namespace tideecho
 		AsyncSendResult asyncSend(std::vector<uint8_t> data, NetEndpoint remote);
 		AsyncSendResult asyncSendRef(std::span<const uint8_t> data, NetEndpoint remote);
 		std::optional<NetPackage> getPackage();
+		TCPListenerStatus status() { return listener.status(); }
+		bool valid() { return status() != TCPListenerStatus::Error; }
 		~TCPServer();
 	};
 }
