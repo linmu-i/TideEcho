@@ -191,7 +191,7 @@ namespace tideecho
 				{
 					sendBuffer.data.clear();
 					sendBuffer.dataRef = {};
-					sendBuffer.status->store(AsyncSendStatus::Sended);
+					sendBuffer.status->store(AsyncSendStatus::Sent);
 					sendBuffer.status.reset();
 					sendCnt = 0;
 					sendHeadCnt = 0;
