@@ -398,6 +398,7 @@ namespace tideecho
 		AsyncSendResult asyncSendRef(std::span<const uint8_t> data, NetEndpoint remote);
 		std::optional<NetPackage> getPackage();
 		TCPListenerStatus status() { return listener.status(); }
+		std::optional<TCPStreamStatus> remoteStatus(NetEndpoint remote);
 		bool valid() { return status() != TCPListenerStatus::Error; }
 		~TCPServer();
 	};

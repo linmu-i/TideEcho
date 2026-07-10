@@ -535,6 +535,14 @@ namespace tideecho
 		return remotes;
 	}
 
+	std::optional<TCPStreamStatus> TCPServer::remoteStatus(NetEndpoint remote)
+	{
+		std::lock_guard lock{ *clientsMutex };
+		auto it = clients.find(remote);
+		if (it == clients.end()) return std::nullopt;
+		return it->second.connection.status();
+	}
+
 	TCPServer::~TCPServer()
 	{
 		for (auto& client : clients)
