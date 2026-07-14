@@ -1262,6 +1262,10 @@ namespace tideecho
 				status_ = TCPStreamStatus::Error;
 				s.reset();
 			}
+			else if (connectCalled)
+			{
+				status_ = TCPStreamStatus::Error;
+			}
 			else
 			{
 				status_ = TCPStreamStatus::Idle;
