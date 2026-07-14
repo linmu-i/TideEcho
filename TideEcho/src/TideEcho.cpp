@@ -1086,6 +1086,7 @@ namespace tideecho
 				reset();
 				return TCPStreamStatus::Error;
 			}
+			connectCalled = true;
 			int ret = ::connect(sock, addrPtr, addrLen);
 			// 恢复非阻塞模式
 			u_long nonblock = 1;
@@ -1105,6 +1106,7 @@ namespace tideecho
 		}
 
 		// 4. 非阻塞连接（timeout >= 0）
+		connectCalled = true;
 		int ret = ::connect(sock, addrPtr, addrLen);
 		if (ret == 0)
 		{
@@ -1230,7 +1232,16 @@ namespace tideecho
 				break;
 			case TCPSTATE_CLOSED:
 				// 未连接，且 socket 仍然可用（可调用 connect）
-				status_ = TCPStreamStatus::Idle;
+				if (connectCalled)
+				{
+					// 如果之前调用过 connect，则表示连接失败
+					status_ = TCPStreamStatus::Error;
+					s.reset();
+				}
+				else
+				{
+					status_ = TCPStreamStatus::Idle;
+				}
 				break;
 			case TCPSTATE_LISTEN:
 			case TCPSTATE_CLOSE_WAIT:
@@ -2326,6 +2337,7 @@ namespace tideecho
 			// 临时阻塞
 			int flags = fcntl(sock, F_GETFL, 0);
 			if (flags != -1) fcntl(sock, F_SETFL, flags & ~O_NONBLOCK);
+			connectCalled = true;
 			int ret = ::connect(sock, addrPtr, addrLen);
 			if (flags != -1) fcntl(sock, F_SETFL, flags);
 			if (ret == 0)
@@ -2341,6 +2353,7 @@ namespace tideecho
 			}
 		}
 
+		connectCalled = true;
 		int ret = ::connect(sock, addrPtr, addrLen);
 		if (ret == 0)
 		{
@@ -2500,7 +2513,15 @@ namespace tideecho
 		}
 		else
 		{
-			status_ = TCPStreamStatus::Idle;
+			if (connectCalled)
+			{
+				status_ = TCPStreamStatus::Error;
+				s.reset();
+			}
+			else
+			{
+				status_ = TCPStreamStatus::Idle;
+			}
 			return status_;
 		}
 	}

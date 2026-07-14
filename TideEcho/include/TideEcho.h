@@ -139,6 +139,8 @@ namespace tideecho
 		TCPStreamStatus status_ = TCPStreamStatus::Idle;
 		AddressFamily family = AddressFamily::Unknown;
 
+		bool connectCalled = false;
+
 		friend class TCPListener;
 
 	public:
