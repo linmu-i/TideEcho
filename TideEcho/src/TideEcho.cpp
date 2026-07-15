@@ -1240,37 +1240,73 @@ namespace tideecho
 			return status_;
 		}
 
-		// 4. 检查连接过程状态（通过 SO_ERROR）
+		// 4. 检查 SO_ERROR（获取挂起的错误）
 		int error = 0;
 		int optlen = sizeof(error);
 		int ret = getsockopt(sock, SOL_SOCKET, SO_ERROR, (char*)&error, &optlen);
 		if (ret == SOCKET_ERROR) {
-			// getsockopt 失败，保守处理为错误
+			// getsockopt 失败，视为错误
 			status_ = TCPStreamStatus::Error;
 			s.reset();
 			return status_;
 		}
 
-		// 根据错误码判定连接阶段
+		// 连接仍在进行中（非阻塞 connect 尚未完成）
 		if (error == WSAEWOULDBLOCK || error == WSAEINPROGRESS) {
-			// 连接仍在进行中（非阻塞 connect 尚未完成）
 			status_ = TCPStreamStatus::Connecting;
 			return status_;
 		}
-		else if (error != 0) {
-			// 连接失败（如 WSAETIMEDOUT、WSAECONNREFUSED 等）
+
+		// 连接失败（如 WSAETIMEDOUT、WSAECONNREFUSED 等）
+		if (error != 0) {
 			status_ = TCPStreamStatus::Error;
 			s.reset();
 			return status_;
 		}
 
-		// 此时 error == 0，表示连接已成功建立（或曾经成功）
-		// 5. 检测已建立连接是否仍然存活（被动断开检测）
+		// ----------------------------------------------
+		// 此时 error == 0，但需要进一步确认连接真正完成
+		// 因为 SO_ERROR 可能瞬时为 0 但套接字尚未完全就绪
+		// ----------------------------------------------
+
+		// 5. 使用 select 检查 writefds 和 exceptfds
+		fd_set writefds, exceptfds;
+		FD_ZERO(&writefds);
+		FD_ZERO(&exceptfds);
+		FD_SET(sock, &writefds);
+		FD_SET(sock, &exceptfds);
+
+		timeval tv = { 0, 0 };  // 非阻塞轮询，立即返回
+		int selRet = select(0, nullptr, &writefds, &exceptfds, &tv);
+
+		if (selRet == SOCKET_ERROR) {
+			status_ = TCPStreamStatus::Error;
+			s.reset();
+			return status_;
+		}
+
+		// 如果异常事件触发，说明连接失败（例如对端重置）
+		if (FD_ISSET(sock, &exceptfds)) {
+			status_ = TCPStreamStatus::Error;
+			s.reset();
+			return status_;
+		}
+
+		// 核心修复：如果套接字不可写，说明连接尚未真正完成
+		if (!FD_ISSET(sock, &writefds)) {
+			status_ = TCPStreamStatus::Connecting;
+			return status_;
+		}
+
+		// --------------------------------------------------
+		// 走到这里，连接已确认建立（套接字可写）
+		// 现在进行被动断开检测（检查 readfds 和 MSG_PEEK）
+		// --------------------------------------------------
+
 		fd_set readfds;
 		FD_ZERO(&readfds);
 		FD_SET(sock, &readfds);
-		timeval tv = { 0, 0 };  // 立即返回，不阻塞
-		int selRet = select(0, &readfds, nullptr, nullptr, &tv);
+		selRet = select(0, &readfds, nullptr, nullptr, &tv);
 
 		if (selRet == SOCKET_ERROR) {
 			status_ = TCPStreamStatus::Error;
@@ -1288,6 +1324,7 @@ namespace tideecho
 		// 使用 MSG_PEEK 窥探一个字节，不消耗数据
 		char buf[1];
 		int recvRet = ::recv(sock, buf, 1, MSG_PEEK);
+
 		if (recvRet == 0) {
 			// 对端正常关闭连接 (FIN)
 			status_ = TCPStreamStatus::Error;
