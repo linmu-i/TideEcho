@@ -1836,7 +1836,9 @@ namespace tideecho
 			}
 			u_long nonblock = 1;
 			ioctlsocket(client, FIONBIO, &nonblock);
-			return std::make_unique<TCPStream>(std::make_unique<TCPStreamBuffer>(Socket(SocketToI64(client))));
+			auto newStreamBuffer = std::make_unique<TCPStreamBuffer>(Socket(SocketToI64(client)));
+			newStreamBuffer->connectCalled = true;
+			return std::make_unique<TCPStream>(std::move(newStreamBuffer));
 		}
 	}
 
@@ -3001,7 +3003,9 @@ namespace tideecho
 			}
 			int cflags = fcntl(client, F_GETFL, 0);
 			if (cflags != -1) fcntl(client, F_SETFL, cflags | O_NONBLOCK);
-			return std::make_unique<TCPStream>(std::make_unique<TCPStreamBuffer>(Socket(SocketToI64(client))));
+			auto newStreamBuffer = std::make_unique<TCPStreamBuffer>(Socket(SocketToI64(client)));
+			newStreamBuffer->connectCalled = true;
+			return std::make_unique<TCPStream>(std::move(newStreamBuffer));
 		}
 	}
 
