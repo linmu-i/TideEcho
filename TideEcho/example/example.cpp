@@ -54,7 +54,7 @@ int main()
 			}
 			else
 			{
-				client.asyncSend(std::vector<char>(input.begin(), input.end()));
+				client.asyncSend(std::vector<uint8_t>(input.begin(), input.end()));
 			}
 			auto pkgOpt = client.getPackage();
 			while (pkgOpt != std::nullopt)
@@ -105,7 +105,7 @@ int main()
 			{
 				for (const auto& remote : server.remote())
 				{
-					server.asyncSend(std::vector<char>(input.begin(), input.end()), remote);
+					server.asyncSend(std::vector<uint8_t>(input.begin(), input.end()), remote);
 				}
 			}
 		}

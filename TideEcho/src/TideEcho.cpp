@@ -875,6 +875,23 @@ namespace tideecho
 			}
 		}
 
+		int keepalive_enabled = 1;
+		if (setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, (char*)&keepalive_enabled, sizeof(keepalive_enabled)) == SOCKET_ERROR) {
+			status_ = TCPStreamStatus::Error;
+			closesocket(sock);
+			return;
+		}
+		struct tcp_keepalive ka = { 0 };
+		ka.onoff = 1;
+		ka.keepalivetime = 20000; // 空闲超时(ms)
+		ka.keepaliveinterval = 5000; // 探测间隔(ms)
+		DWORD ret = 0;
+		if (WSAIoctl(sock, SIO_KEEPALIVE_VALS, &ka, sizeof(ka), NULL, 0, &ret, NULL, NULL) == SOCKET_ERROR) {
+			status_ = TCPStreamStatus::Error;
+			closesocket(sock);
+			return;
+		}
+
 		s = Socket(SocketToI64(sock));
 
 		if (remote.valid() && (!local_.valid() || remote.addrFamily() == local.addrFamily()))
@@ -1205,74 +1222,96 @@ namespace tideecho
 
 	TCPStreamStatus TCPStreamBuffer::status()
 	{
-		if (status_ == TCPStreamStatus::Error) return TCPStreamStatus::Error;
+		// 1. 若已为错误状态，直接返回
+		if (status_ == TCPStreamStatus::Error)
+			return TCPStreamStatus::Error;
+
+		// 2. 获取套接字句柄，校验有效性
 		SOCKET sock = I64ToSocket(s.get());
-		if (sock == INVALID_SOCKET)
-		{
+		if (sock == INVALID_SOCKET) {
 			status_ = TCPStreamStatus::Error;
 			s.reset();
 			return status_;
 		}
 
-		TCP_INFO_v1 tcpInfo = {};
-		DWORD version = 1;
-		DWORD bytesReturned = 0;
+		// 3. 如果从未调用过 connect，直接返回 Idle
+		if (!connectCalled) {
+			status_ = TCPStreamStatus::Idle;
+			return status_;
+		}
 
-		if (WSAIoctl(sock, SIO_TCP_INFO, &version, sizeof(version),
-			&tcpInfo, sizeof(tcpInfo), &bytesReturned, nullptr, nullptr) == 0)
-		{
-			switch (tcpInfo.State)
-			{
-			case TCPSTATE_ESTABLISHED:
+		// 4. 检查连接过程状态（通过 SO_ERROR）
+		int error = 0;
+		int optlen = sizeof(error);
+		int ret = getsockopt(sock, SOL_SOCKET, SO_ERROR, (char*)&error, &optlen);
+		if (ret == SOCKET_ERROR) {
+			// getsockopt 失败，保守处理为错误
+			status_ = TCPStreamStatus::Error;
+			s.reset();
+			return status_;
+		}
+
+		// 根据错误码判定连接阶段
+		if (error == WSAEWOULDBLOCK || error == WSAEINPROGRESS) {
+			// 连接仍在进行中（非阻塞 connect 尚未完成）
+			status_ = TCPStreamStatus::Connecting;
+			return status_;
+		}
+		else if (error != 0) {
+			// 连接失败（如 WSAETIMEDOUT、WSAECONNREFUSED 等）
+			status_ = TCPStreamStatus::Error;
+			s.reset();
+			return status_;
+		}
+
+		// 此时 error == 0，表示连接已成功建立（或曾经成功）
+		// 5. 检测已建立连接是否仍然存活（被动断开检测）
+		fd_set readfds;
+		FD_ZERO(&readfds);
+		FD_SET(sock, &readfds);
+		timeval tv = { 0, 0 };  // 立即返回，不阻塞
+		int selRet = select(0, &readfds, nullptr, nullptr, &tv);
+
+		if (selRet == SOCKET_ERROR) {
+			status_ = TCPStreamStatus::Error;
+			s.reset();
+			return status_;
+		}
+
+		if (selRet == 0) {
+			// 无可读事件，连接正常（无数据，无断开）
+			status_ = TCPStreamStatus::Connected;
+			return status_;
+		}
+
+		// 套接字可读：可能是数据，也可能对端关闭或出错
+		// 使用 MSG_PEEK 窥探一个字节，不消耗数据
+		char buf[1];
+		int recvRet = ::recv(sock, buf, 1, MSG_PEEK);
+		if (recvRet == 0) {
+			// 对端正常关闭连接 (FIN)
+			status_ = TCPStreamStatus::Error;
+			s.reset();
+			return status_;
+		}
+		else if (recvRet == SOCKET_ERROR) {
+			int err = WSAGetLastError();
+			if (err == WSAEWOULDBLOCK) {
+				// 理论上 select 已报告可读，不应出现，但若发生则视为连接正常
 				status_ = TCPStreamStatus::Connected;
-				break;
-			case TCPSTATE_SYN_SENT:
-			case TCPSTATE_SYN_RCVD:
-				status_ = TCPStreamStatus::Connecting;
-				break;
-			case TCPSTATE_CLOSED:
-				// 未连接，且 socket 仍然可用（可调用 connect）
-				if (connectCalled)
-				{
-					// 如果之前调用过 connect，则表示连接失败
-					status_ = TCPStreamStatus::Error;
-					s.reset();
-				}
-				else
-				{
-					status_ = TCPStreamStatus::Idle;
-				}
-				break;
-			case TCPSTATE_LISTEN:
-			case TCPSTATE_CLOSE_WAIT:
-			case TCPSTATE_CLOSING:
-			case TCPSTATE_LAST_ACK:
-			case TCPSTATE_TIME_WAIT:
-			default:
-				// 这些状态表示连接已关闭或正在关闭，不可用于读写
-				status_ = TCPStreamStatus::Error;
-				s.reset();
-				break;
 			}
-		}
-		else
-		{
-			if (!s.valid())
-			{
+			else {
+				// 其他错误（如 WSAECONNRESET、WSAENETRESET 等）
 				status_ = TCPStreamStatus::Error;
 				s.reset();
 			}
-			else if (connectCalled)
-			{
-				status_ = TCPStreamStatus::Error;
-			}
-			else
-			{
-				status_ = TCPStreamStatus::Idle;
-			}
+			return status_;
 		}
-
-		return status_;
+		else {
+			// 有数据可读，连接正常
+			status_ = TCPStreamStatus::Connected;
+			return status_;
+		}
 	}
 
 	int64_t TCPStreamBuffer::send(std::span<const uint8_t> data, int64_t timeout_ms)
@@ -2072,7 +2111,6 @@ namespace tideecho
 	}
 
 	// ---------- TCPStreamBuffer ----------
-	// ---------- TCPStreamBuffer ----------
 	TCPStreamBuffer::TCPStreamBuffer(NetEndpoint remote, NetEndpoint local)
 	{
 		setp(reinterpret_cast<char*>(writeBuf.data()), reinterpret_cast<char*>(writeBuf.data()) + writeBuf.size());
@@ -2151,6 +2189,38 @@ namespace tideecho
 			else
 			{
 				local_ = {};
+			}
+		}
+
+		int keepalive_enabled = 1;
+		if (setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE,
+			&keepalive_enabled, sizeof(keepalive_enabled)) == -1) {
+			status_ = TCPStreamStatus::Error;
+			::close(sock);
+			return;
+		}
+		else {
+			int idle_sec = 20;      // 空闲超时：20 秒
+			int interval_sec = 5;   // 探测间隔：5 秒
+			int cnt = 3;            // 连续失败 3 次后判定断开
+
+			if (setsockopt(sock, IPPROTO_TCP, TCP_KEEPIDLE,
+				&idle_sec, sizeof(idle_sec)) == -1) {
+				status_ = TCPStreamStatus::Error;
+				::close(sock);
+				return;
+			}
+			if (setsockopt(sock, IPPROTO_TCP, TCP_KEEPINTVL,
+				&interval_sec, sizeof(interval_sec)) == -1) {
+				status_ = TCPStreamStatus::Error;
+				::close(sock);
+				return;
+			}
+			if (setsockopt(sock, IPPROTO_TCP, TCP_KEEPCNT,
+				&cnt, sizeof(cnt)) == -1) {
+				status_ = TCPStreamStatus::Error;
+				::close(sock);
+				return;
 			}
 		}
 
@@ -2448,84 +2518,82 @@ namespace tideecho
 
 	TCPStreamStatus TCPStreamBuffer::status()
 	{
+		// 1. 若已为错误状态，直接返回
 		if (status_ == TCPStreamStatus::Error)
 			return TCPStreamStatus::Error;
 
-		if (!s.valid())
-		{
-			status_ = TCPStreamStatus::Error;
-			s.reset();
-			return status_;
-		}
-
+		// 2. 获取套接字句柄，校验有效性（POSIX 下为 int，无效为 -1）
 		int sock = I64ToSocket(s.get());
-		if (sock == -1)
-		{
+		if (sock < 0) {
 			status_ = TCPStreamStatus::Error;
 			s.reset();
 			return status_;
 		}
 
-		int so_error = 0;
-		socklen_t len = sizeof(so_error);
-		if (getsockopt(sock, SOL_SOCKET, SO_ERROR, &so_error, &len) != 0 || so_error != 0)
-		{
+		// 3. 如果从未调用过 connect，直接返回 Idle
+		if (!connectCalled) {
+			status_ = TCPStreamStatus::Idle;
+			return status_;
+		}
+
+		// 4. 检查连接过程状态（通过 SO_ERROR）
+		int error = 0;
+		socklen_t optlen = sizeof(error);
+		int ret = getsockopt(sock, SOL_SOCKET, SO_ERROR, &error, &optlen);
+		if (ret == -1) {
 			status_ = TCPStreamStatus::Error;
 			s.reset();
 			return status_;
 		}
 
-		struct sockaddr_storage ss;
-		len = sizeof(ss);
-		if (getpeername(sock, (sockaddr*)&ss, &len) == 0)
-		{
+		if (error == EINPROGRESS) {
+			status_ = TCPStreamStatus::Connecting;
+			return status_;
+		}
+		else if (error != 0) {
+			status_ = TCPStreamStatus::Error;
+			s.reset();
+			return status_;
+		}
+
+		// 5. 检测已建立连接是否仍然存活（被动断开检测）
+		fd_set readfds;
+		FD_ZERO(&readfds);
+		FD_SET(sock, &readfds);
+		struct timeval tv = { 0, 0 };
+		int selRet = select(sock + 1, &readfds, nullptr, nullptr, &tv);
+
+		if (selRet == -1) {
+			status_ = TCPStreamStatus::Error;
+			s.reset();
+			return status_;
+		}
+
+		if (selRet == 0) {
 			status_ = TCPStreamStatus::Connected;
 			return status_;
 		}
 
-		// getpeername 失败
-		if (status_ == TCPStreamStatus::Connecting)
-		{
-			fd_set writefds;
-			FD_ZERO(&writefds);
-			FD_SET(sock, &writefds);
-			struct timeval tv = { 0, 0 };
-			int sel = select(sock + 1, nullptr, &writefds, nullptr, &tv);
-			if (sel > 0 && FD_ISSET(sock, &writefds))
-			{
-				int err = 0;
-				socklen_t errlen = sizeof(err);
-				if (getsockopt(sock, SOL_SOCKET, SO_ERROR, &err, &errlen) == 0 && err == 0)
-				{
-					status_ = TCPStreamStatus::Connected;
-					return status_;
-				}
-				else
-				{
-					status_ = TCPStreamStatus::Error;
-					s.reset();
-					return status_;
-				}
-			}
-			return TCPStreamStatus::Connecting;
-		}
-		else if (status_ == TCPStreamStatus::Connected)
-		{
+		char buf[1];
+		int recvRet = ::recv(sock, buf, 1, MSG_PEEK);
+		if (recvRet == 0) {
 			status_ = TCPStreamStatus::Error;
 			s.reset();
 			return status_;
 		}
-		else
-		{
-			if (connectCalled)
-			{
+		else if (recvRet == -1) {
+			int err = errno;
+			if (err == EAGAIN || err == EWOULDBLOCK) {
+				status_ = TCPStreamStatus::Connected;
+			}
+			else {
 				status_ = TCPStreamStatus::Error;
 				s.reset();
 			}
-			else
-			{
-				status_ = TCPStreamStatus::Idle;
-			}
+			return status_;
+		}
+		else {
+			status_ = TCPStreamStatus::Connected;
 			return status_;
 		}
 	}
