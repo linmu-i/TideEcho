@@ -1767,7 +1767,25 @@ namespace tideecho
 				return nullptr;
 			}
 			ioctlsocket(client, FIONBIO, &nonblock);
-			return std::make_unique<TCPStream>(std::make_unique<TCPStreamBuffer>(Socket(SocketToI64(client))));
+
+			int keepalive_enabled = 1;
+			if (setsockopt(client, SOL_SOCKET, SO_KEEPALIVE, (char*)&keepalive_enabled, sizeof(keepalive_enabled)) == SOCKET_ERROR) {
+				closesocket(client);
+				return nullptr;
+			}
+			struct tcp_keepalive ka = { 0 };
+			ka.onoff = 1;
+			ka.keepalivetime = 20000; // 空闲超时(ms)
+			ka.keepaliveinterval = 5000; // 探测间隔(ms)
+			DWORD ret = 0;
+			if (WSAIoctl(client, SIO_KEEPALIVE_VALS, &ka, sizeof(ka), NULL, 0, &ret, NULL, NULL) == SOCKET_ERROR) {
+				closesocket(client);
+				return nullptr;
+			}
+
+			auto newStreamBuffer = std::make_unique<TCPStreamBuffer>(Socket(SocketToI64(client)));
+			newStreamBuffer->connectCalled = true; // 标记为已连接
+			return std::make_unique<TCPStream>(std::move(newStreamBuffer));
 		}
 
 		// 非阻塞立即尝试
@@ -1776,7 +1794,25 @@ namespace tideecho
 			if (client != INVALID_SOCKET) {
 				u_long nonblock = 1;
 				ioctlsocket(client, FIONBIO, &nonblock);
-				return std::make_unique<TCPStream>(std::make_unique<TCPStreamBuffer>(Socket(SocketToI64(client))));
+
+				int keepalive_enabled = 1;
+				if (setsockopt(client, SOL_SOCKET, SO_KEEPALIVE, (char*)&keepalive_enabled, sizeof(keepalive_enabled)) == SOCKET_ERROR) {
+					closesocket(client);
+					return nullptr;
+				}
+				struct tcp_keepalive ka = { 0 };
+				ka.onoff = 1;
+				ka.keepalivetime = 20000; // 空闲超时(ms)
+				ka.keepaliveinterval = 5000; // 探测间隔(ms)
+				DWORD ret = 0;
+				if (WSAIoctl(client, SIO_KEEPALIVE_VALS, &ka, sizeof(ka), NULL, 0, &ret, NULL, NULL) == SOCKET_ERROR) {
+					closesocket(client);
+					return nullptr;
+				}
+
+				auto newStreamBuffer = std::make_unique<TCPStreamBuffer>(Socket(SocketToI64(client)));
+				newStreamBuffer->connectCalled = true; // 标记为已连接
+				return std::make_unique<TCPStream>(std::move(newStreamBuffer));
 			}
 			int err = WSAGetLastError();
 			if (err == WSAEWOULDBLOCK) {
@@ -1836,6 +1872,22 @@ namespace tideecho
 			}
 			u_long nonblock = 1;
 			ioctlsocket(client, FIONBIO, &nonblock);
+
+			int keepalive_enabled = 1;
+			if (setsockopt(client, SOL_SOCKET, SO_KEEPALIVE, (char*)&keepalive_enabled, sizeof(keepalive_enabled)) == SOCKET_ERROR) {
+				closesocket(client);
+				return nullptr;
+			}
+			struct tcp_keepalive ka = { 0 };
+			ka.onoff = 1;
+			ka.keepalivetime = 20000; // 空闲超时(ms)
+			ka.keepaliveinterval = 5000; // 探测间隔(ms)
+			DWORD ret = 0;
+			if (WSAIoctl(client, SIO_KEEPALIVE_VALS, &ka, sizeof(ka), NULL, 0, &ret, NULL, NULL) == SOCKET_ERROR) {
+				closesocket(client);
+				return nullptr;
+			}
+
 			auto newStreamBuffer = std::make_unique<TCPStreamBuffer>(Socket(SocketToI64(client)));
 			newStreamBuffer->connectCalled = true;
 			return std::make_unique<TCPStream>(std::move(newStreamBuffer));
@@ -2945,7 +2997,38 @@ namespace tideecho
 			// 设置 client 非阻塞
 			int cflags = fcntl(client, F_GETFL, 0);
 			if (cflags != -1) fcntl(client, F_SETFL, cflags | O_NONBLOCK);
-			return std::make_unique<TCPStream>(std::make_unique<TCPStreamBuffer>(Socket(SocketToI64(client))));
+
+			int keepalive_enabled = 1;
+			if (setsockopt(client, SOL_SOCKET, SO_KEEPALIVE,
+				&keepalive_enabled, sizeof(keepalive_enabled)) == -1) {
+				::close(client);
+				return nullptr;
+			}
+			else {
+				int idle_sec = 20;      // 空闲超时：20 秒
+				int interval_sec = 5;   // 探测间隔：5 秒
+				int cnt = 3;            // 连续失败 3 次后判定断开
+
+				if (setsockopt(client, IPPROTO_TCP, TCP_KEEPIDLE,
+					&idle_sec, sizeof(idle_sec)) == -1) {
+					::close(client);
+					return nullptr;
+				}
+				if (setsockopt(client, IPPROTO_TCP, TCP_KEEPINTVL,
+					&interval_sec, sizeof(interval_sec)) == -1) {
+					::close(client);
+					return nullptr;
+				}
+				if (setsockopt(client, IPPROTO_TCP, TCP_KEEPCNT,
+					&cnt, sizeof(cnt)) == -1) {
+					::close(client);
+					return nullptr;
+				}
+			}
+
+			auto newStreamBuffer = std::make_unique<TCPStreamBuffer>(Socket(SocketToI64(client)));
+			newStreamBuffer->connectCalled = true;
+			return std::make_unique<TCPStream>(std::move(newStreamBuffer));
 		}
 
 		if (timeout_ms == 0)
@@ -2955,7 +3038,38 @@ namespace tideecho
 			{
 				int cflags = fcntl(client, F_GETFL, 0);
 				if (cflags != -1) fcntl(client, F_SETFL, cflags | O_NONBLOCK);
-				return std::make_unique<TCPStream>(std::make_unique<TCPStreamBuffer>(Socket(SocketToI64(client))));
+
+				int keepalive_enabled = 1;
+				if (setsockopt(client, SOL_SOCKET, SO_KEEPALIVE,
+					&keepalive_enabled, sizeof(keepalive_enabled)) == -1) {
+					::close(client);
+					return nullptr;
+				}
+				else {
+					int idle_sec = 20;      // 空闲超时：20 秒
+					int interval_sec = 5;   // 探测间隔：5 秒
+					int cnt = 3;            // 连续失败 3 次后判定断开
+
+					if (setsockopt(client, IPPROTO_TCP, TCP_KEEPIDLE,
+						&idle_sec, sizeof(idle_sec)) == -1) {
+						::close(client);
+						return nullptr;
+					}
+					if (setsockopt(client, IPPROTO_TCP, TCP_KEEPINTVL,
+						&interval_sec, sizeof(interval_sec)) == -1) {
+						::close(client);
+						return nullptr;
+					}
+					if (setsockopt(client, IPPROTO_TCP, TCP_KEEPCNT,
+						&cnt, sizeof(cnt)) == -1) {
+						::close(client);
+						return nullptr;
+					}
+				}
+
+				auto newStreamBuffer = std::make_unique<TCPStreamBuffer>(Socket(SocketToI64(client)));
+				newStreamBuffer->connectCalled = true;
+				return std::make_unique<TCPStream>(std::move(newStreamBuffer));
 			}
 			if (errno == EWOULDBLOCK || errno == EAGAIN) return nullptr;
 			return nullptr;
@@ -3003,6 +3117,35 @@ namespace tideecho
 			}
 			int cflags = fcntl(client, F_GETFL, 0);
 			if (cflags != -1) fcntl(client, F_SETFL, cflags | O_NONBLOCK);
+
+			int keepalive_enabled = 1;
+			if (setsockopt(client, SOL_SOCKET, SO_KEEPALIVE,
+				&keepalive_enabled, sizeof(keepalive_enabled)) == -1) {
+				::close(client);
+				return nullptr;
+			}
+			else {
+				int idle_sec = 20;      // 空闲超时：20 秒
+				int interval_sec = 5;   // 探测间隔：5 秒
+				int cnt = 3;            // 连续失败 3 次后判定断开
+
+				if (setsockopt(client, IPPROTO_TCP, TCP_KEEPIDLE,
+					&idle_sec, sizeof(idle_sec)) == -1) {
+					::close(client);
+					return nullptr;
+				}
+				if (setsockopt(client, IPPROTO_TCP, TCP_KEEPINTVL,
+					&interval_sec, sizeof(interval_sec)) == -1) {
+					::close(client);
+					return nullptr;
+				}
+				if (setsockopt(client, IPPROTO_TCP, TCP_KEEPCNT,
+					&cnt, sizeof(cnt)) == -1) {
+					::close(client);
+					return nullptr;
+				}
+			}
+
 			auto newStreamBuffer = std::make_unique<TCPStreamBuffer>(Socket(SocketToI64(client)));
 			newStreamBuffer->connectCalled = true;
 			return std::make_unique<TCPStream>(std::move(newStreamBuffer));
