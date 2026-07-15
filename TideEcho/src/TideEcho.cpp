@@ -2572,11 +2572,9 @@ namespace tideecho
 
 	TCPStreamStatus TCPStreamBuffer::status()
 	{
-		// 1. 若已为错误状态，直接返回
 		if (status_ == TCPStreamStatus::Error)
 			return TCPStreamStatus::Error;
 
-		// 2. 获取套接字句柄，校验有效性（POSIX 下为 int，无效为 -1）
 		int sock = I64ToSocket(s.get());
 		if (sock < 0) {
 			status_ = TCPStreamStatus::Error;
@@ -2584,45 +2582,71 @@ namespace tideecho
 			return status_;
 		}
 
-		// 3. 如果从未调用过 connect，直接返回 Idle
 		if (!connectCalled) {
 			status_ = TCPStreamStatus::Idle;
 			return status_;
 		}
 
-		// 4. 检查连接过程状态（通过 SO_ERROR）
+		// ---- 处理正在连接的状态 ----
+		if (status_ == TCPStreamStatus::Connecting) {
+			fd_set writefds;
+			FD_ZERO(&writefds);
+			FD_SET(sock, &writefds);
+			struct timeval tv = { 0, 0 };   // 非阻塞检测
+			int sel = select(sock + 1, nullptr, &writefds, nullptr, &tv);
+			if (sel == -1) {
+				status_ = TCPStreamStatus::Error;
+				s.reset();
+				return status_;
+			}
+			if (sel == 0) {
+				// 仍在连接中
+				return TCPStreamStatus::Connecting;
+			}
+			// 套接字可写，检查连接结果
+			int error = 0;
+			socklen_t len = sizeof(error);
+			if (getsockopt(sock, SOL_SOCKET, SO_ERROR, &error, &len) == -1) {
+				status_ = TCPStreamStatus::Error;
+				s.reset();
+				return status_;
+			}
+			if (error == 0) {
+				status_ = TCPStreamStatus::Connected;
+			}
+			else {
+				status_ = TCPStreamStatus::Error;
+				s.reset();
+			}
+			return status_;
+		}
+
+		// ---- 已连接状态下的存活检测（与原有逻辑一致） ----
+		// 注意：此时 status_ 应为 Connected，但为安全仍检查 SO_ERROR
 		int error = 0;
-		socklen_t optlen = sizeof(error);
-		int ret = getsockopt(sock, SOL_SOCKET, SO_ERROR, &error, &optlen);
-		if (ret == -1) {
+		socklen_t len = sizeof(error);
+		if (getsockopt(sock, SOL_SOCKET, SO_ERROR, &error, &len) == -1) {
+			status_ = TCPStreamStatus::Error;
+			s.reset();
+			return status_;
+		}
+		if (error != 0) {
 			status_ = TCPStreamStatus::Error;
 			s.reset();
 			return status_;
 		}
 
-		if (error == EINPROGRESS) {
-			status_ = TCPStreamStatus::Connecting;
-			return status_;
-		}
-		else if (error != 0) {
-			status_ = TCPStreamStatus::Error;
-			s.reset();
-			return status_;
-		}
-
-		// 5. 检测已建立连接是否仍然存活（被动断开检测）
+		// 使用 MSG_PEEK 检测对端关闭
 		fd_set readfds;
 		FD_ZERO(&readfds);
 		FD_SET(sock, &readfds);
 		struct timeval tv = { 0, 0 };
 		int selRet = select(sock + 1, &readfds, nullptr, nullptr, &tv);
-
 		if (selRet == -1) {
 			status_ = TCPStreamStatus::Error;
 			s.reset();
 			return status_;
 		}
-
 		if (selRet == 0) {
 			status_ = TCPStreamStatus::Connected;
 			return status_;
